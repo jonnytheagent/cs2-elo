@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marsborne — ELO Report</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07090d;
+    --surface: #0f1117;
+    --surface2: #161820;
+    --border: #1a1e2a;
+    --accent: #ff3d71;
+    --accent2: #00e5ff;
+    --gold: #ffd740;
+    --green: #00e676;
+    --red: #ff5252;
+    --text: #e0e2ec;
+    --muted: #525766;
+    --win-bg: rgba(0,230,118,0.05);
+    --loss-bg: rgba(255,82,82,0.05);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+  }
+  .scanlines {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  }
+  .container { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 32px 24px; }
+  .header {
+    border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px;
+    display: flex; align-items: flex-end; justify-content: space-between;
+  }
+  .team-title h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(52px, 9vw, 104px);
+    color: var(--accent); letter-spacing: 3px;
+    text-shadow: 0 0 80px rgba(255,61,113,0.3);
+    line-height: 0.9;
+  }
+  .team-title .sub {
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--muted); font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; margin-top: 8px;
+  }
+  .header-meta { text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
+  .header-meta .elo-big {
+    font-family: 'Bebas Neue', sans-serif; font-size: 46px;
+    color: var(--gold); display: block; line-height: 1;
+  }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 12px; margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 16px 20px; position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent); opacity: 0.35;
+  }
+  .stat-card.gold::before { background: var(--gold); opacity: 0.7; }
+  .stat-card .label {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;
+  }
+  .stat-card .value {
+    font-family: 'Bebas Neue', sans-serif; font-size: 32px; line-height: 1; color: var(--text);
+  }
+  .stat-card .sub-value { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+  .stat-card .value.red   { color: var(--accent); }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.gold  { color: var(--gold); }
+  .stat-card .value.cyan  { color: var(--accent2); }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 24px; margin-bottom: 20px; }
+  .panel-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 3px; color: var(--muted);
+    margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+  }
+  .panel-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  .match-table { width: 100%; border-collapse: collapse; }
+  .match-table th {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 2px; color: var(--muted);
+    text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  .match-table td { padding: 9px 12px; border-bottom: 1px solid rgba(26,30,42,0.6); font-size: 13px; }
+  .match-table tr.win  { background: var(--win-bg); }
+  .match-table tr.loss { background: var(--loss-bg); }
+  .match-table tr:hover { background: var(--surface2); }
+  .team-cell { font-weight: 600; }
+  .result-icon { font-size: 10px; }
+  .result-icon.win  { color: var(--green); }
+  .result-icon.loss { color: var(--red); }
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 2px;
+    font-size: 10px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+  }
+  .badge.lan    { background: rgba(255,215,64,0.15); color: var(--gold); border: 1px solid rgba(255,215,64,0.3); }
+  .badge.online { background: rgba(82,87,102,0.2); color: var(--muted); border: 1px solid var(--border); }
+  .tier-badge {
+    display: inline-block; padding: 2px 6px; border-radius: 2px;
+    font-size: 10px; font-family: 'IBM Plex Mono', monospace;
+  }
+  .tier-badge.tier-major       { background: rgba(255,215,64,0.15); color: var(--gold); }
+  .tier-badge.tier-super-elite { background: rgba(0,229,255,0.12);  color: #80deea; }
+  .tier-badge.tier-elite       { background: rgba(0,229,255,0.08);  color: #80deea; }
+  .tier-badge.tier-big         { background: rgba(255,61,113,0.1);  color: #ff80ab; }
+  .tier-badge.tier-medium      { background: rgba(255,255,255,0.05); color: var(--muted); }
+  .tier-badge.tier-none        { background: rgba(255,255,255,0.03); color: #3a3f50; }
+  .streak-bar { display: flex; gap: 3px; flex-wrap: wrap; }
+  .streak-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .streak-dot.w { background: var(--green); }
+  .streak-dot.l { background: var(--red); opacity: 0.6; }
+  .footer {
+    text-align: center; padding: 32px 0 16px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--muted); letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="container">
+
+  <div class="header">
+    <div class="team-title">
+      <h1>Marsborne</h1>
+      <div class="sub">Team ELO Report &nbsp;·&nbsp; 171 matches tracked</div>
+    </div>
+    <div class="header-meta">
+      <span class="elo-big">1156</span>
+      CURRENT ELO
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card gold">
+      <div class="label">Win Rate</div>
+      <div class="value gold">60.8%</div>
+      <div class="sub-value">104W – 67L</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Team Rating</div>
+      <div class="value cyan">1.114</div>
+      <div class="sub-value">HLTV 3.0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">ELO Peak</div>
+      <div class="value gold">1229</div>
+      <div class="sub-value">all-time high</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">ELO vs Start</div>
+      <div class="value green">
+        +156
+      </div>
+      <div class="sub-value">from 1000 base</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">LAN WR</div>
+      <div class="value green">57.9%</div>
+      <div class="sub-value">vs 61.7% online</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Opp ELO</div>
+      <div class="value">1066</div>
+      <div class="sub-value">strength of sched.</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Cur Streak</div>
+      <div class="value ">1L</div>
+      <div class="sub-value">losing</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Major / Elite WR</div>
+      <div class="value">0%</div>
+      <div class="sub-value">0 top-tier matches</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Upset Rate</div>
+      <div class="value cyan">30.6%</div>
+      <div class="sub-value">won as underdog</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Choke Rate</div>
+      <div class="value">13.6%</div>
+      <div class="sub-value">lost as favourite</div>
+    </div>
+  </div>
+
+  <!-- Form dots -->
+  <div style="margin-bottom:24px; display:flex; align-items:center; gap:12px;">
+    <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:2px;">Last 30</span>
+    <div class="streak-bar" id="streakBar"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">ELO History</div>
+    <div style="position:relative; height:340px">
+      <canvas id="eloChart"></canvas>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-title">Opponent ELO Distribution</div>
+      <div style="position:relative; height:220px">
+        <canvas id="oppChart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Performance by Tier</div>
+      <div style="position:relative; height:220px">
+        <canvas id="tierChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Last 20 Matches</div>
+    <div style="overflow-x:auto">
+      <table class="match-table">
+        <thead>
+          <tr>
+            <th>Result</th><th>Date</th><th>Opponent</th><th>Score</th>
+            <th>Team ELO</th><th>Opp ELO</th><th>Prob</th>
+            <th>Event</th><th>Tier</th><th>Format</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-03-08</td>
+          <td class="team-cell">9z</td>
+          <td>0-3</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1156<span style="color:var(--red);font-size:11px"> -21.3</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1295</td>
+          <td style="font-size:11px;color:#ff5252">DOG (34%)</td>
+          <td>BetBoom Circuit X Pantanal Cuiabá 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-03-07</td>
+          <td class="team-cell">BESTIA</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1178<span style="color:var(--green);font-size:11px"> +18.5</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1148</td>
+          <td style="font-size:11px;color:var(--muted)">~ (52%)</td>
+          <td>BetBoom Circuit X Pantanal Cuiabá 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-03-07</td>
+          <td class="team-cell">Imperial</td>
+          <td>2-1</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1159<span style="color:var(--green);font-size:11px"> +18.0</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1184</td>
+          <td style="font-size:11px;color:#ff5252">DOG (44%)</td>
+          <td>BetBoom Circuit X Pantanal Cuiabá 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-03-05</td>
+          <td class="team-cell">RED Canids</td>
+          <td>2-1</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1141<span style="color:var(--green);font-size:11px"> +19.6</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1135</td>
+          <td style="font-size:11px;color:var(--muted)">~ (48%)</td>
+          <td>BetBoom Circuit X Pantanal Cuiabá 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-03-05</td>
+          <td class="team-cell">Galorys</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1122<span style="color:var(--green);font-size:11px"> +13.3</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1042</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (59%)</td>
+          <td>BetBoom Circuit X Pantanal Cuiabá 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-02-27</td>
+          <td class="team-cell">9z</td>
+          <td>0-2</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1108<span style="color:var(--red);font-size:11px"> -18.3</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1214</td>
+          <td style="font-size:11px;color:#ff5252">DOG (38%)</td>
+          <td>BetBoom RUSH B Summit Season 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-26</td>
+          <td class="team-cell">Fake do Biru</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1126<span style="color:var(--green);font-size:11px"> +7.2</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">988</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (68%)</td>
+          <td>BetBoom RUSH B Summit Season 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-02-25</td>
+          <td class="team-cell">Fluxo</td>
+          <td>0-2</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1119<span style="color:var(--red);font-size:11px"> -18.8</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1045</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (63%)</td>
+          <td>BetBoom RUSH B Summit Season 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-02-24</td>
+          <td class="team-cell">Voca</td>
+          <td>0-2</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1138<span style="color:var(--red);font-size:11px"> -9.7</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1180</td>
+          <td style="font-size:11px;color:var(--muted)">~ (45%)</td>
+          <td>ESL Challenger League Season 51 Nor</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-23</td>
+          <td class="team-cell">Rave</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1148<span style="color:var(--green);font-size:11px"> +8.9</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1095</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (56%)</td>
+          <td>ESL Challenger League Season 51 Nor</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-22</td>
+          <td class="team-cell">Zomblers</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1139<span style="color:var(--green);font-size:11px"> +4.8</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">974</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (72%)</td>
+          <td>ESL Challenger League Season 51 Nor</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-02-21</td>
+          <td class="team-cell">Voca</td>
+          <td>1-2</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1134<span style="color:var(--red);font-size:11px"> -10.6</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1184</td>
+          <td style="font-size:11px;color:#ff5252">DOG (44%)</td>
+          <td>ESL Challenger League Season 51 Nor</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-19</td>
+          <td class="team-cell">FlyQuest RED</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1145<span style="color:var(--green);font-size:11px"> +3.6</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">937</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (76%)</td>
+          <td>ESL Challenger League Season 51 Nor</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-18</td>
+          <td class="team-cell">InControl</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1141<span style="color:var(--green);font-size:11px"> +3.6</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">914</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (78%)</td>
+          <td>ESL Challenger League Season 51 Nor</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-11</td>
+          <td class="team-cell">Rave</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1137<span style="color:var(--green);font-size:11px"> +13.6</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1170</td>
+          <td style="font-size:11px;color:#ff5252">DOG (43%)</td>
+          <td>CCT Season 3 North America Series 3</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-09</td>
+          <td class="team-cell">SportsBetExpert</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1124<span style="color:var(--green);font-size:11px"> +7.9</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1048</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (60%)</td>
+          <td>CCT Season 3 North America Series 3</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-02-07</td>
+          <td class="team-cell">Zomblers</td>
+          <td>2-1</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1116<span style="color:var(--green);font-size:11px"> +4.8</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">961</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (70%)</td>
+          <td>CCT Season 3 North America Series 3</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-02-06</td>
+          <td class="team-cell">Voca</td>
+          <td>1-2</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1111<span style="color:var(--red);font-size:11px"> -9.1</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1172</td>
+          <td style="font-size:11px;color:#ff5252">DOG (43%)</td>
+          <td>Ace NA Masters 2026 Season 1 - BLAS</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2026-02-01</td>
+          <td class="team-cell">BESTIA</td>
+          <td>1-2</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1120<span style="color:var(--red);font-size:11px"> -15.0</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">1210</td>
+          <td style="font-size:11px;color:#ff5252">DOG (40%)</td>
+          <td>FiRe CONTER Season 1</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2026-01-31</td>
+          <td class="team-cell">Procyon</td>
+          <td>2-0</td>
+          <td style="font-family:'IBM Plex Mono',monospace">1135<span style="color:var(--green);font-size:11px"> +6.6</span></td>
+          <td style="font-family:'IBM Plex Mono',monospace">961</td>
+          <td style="font-size:11px;color:#00e5ff">FAV (72%)</td>
+          <td>FiRe CONTER Season 1</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge lan">LAN</span></td>
+        </tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">CS2 ELO SYSTEM &nbsp;·&nbsp; Generated 2026-03-13 22:05</div>
+</div>
+
+<script>
+const eloData   = [1036.5, 1028.9, 1038.7, 1045.1, 1048.0, 1039.9, 1032.5, 1036.7, 1042.9, 1055.7, 1049.7, 1057.2, 1047.9, 1063.1, 1072.5, 1079.0, 1069.3, 1058.9, 1050.4, 1047.4, 1041.0, 1032.6, 1025.1, 1031.3, 1025.8, 1038.5, 1048.5, 1055.0, 1076.9, 1090.0, 1068.0, 1076.7, 1065.9, 1056.9, 1048.6, 1041.2, 1046.8, 1040.4, 1053.5, 1063.6, 1069.8, 1074.5, 1065.0, 1055.8, 1061.6, 1055.2, 1048.5, 1040.5, 1047.8, 1053.6, 1056.2, 1058.8, 1050.5, 1067.5, 1057.2, 1071.1, 1061.9, 1051.1, 1057.5, 1066.3, 1076.0, 1090.5, 1083.2, 1090.0, 1079.7, 1069.8, 1076.3, 1083.3, 1072.2, 1072.4, 1047.2, 1058.1, 1065.0, 1080.4, 1068.8, 1071.7, 1084.7, 1098.0, 1082.4, 1087.7, 1095.6, 1101.2, 1092.7, 1103.5, 1094.1, 1099.4, 1108.5, 1097.8, 1103.2, 1092.1, 1081.6, 1086.6, 1091.9, 1097.0, 1086.5, 1095.4, 1100.8, 1089.1, 1094.5, 1085.0, 1092.4, 1077.6, 1083.0, 1088.5, 1101.9, 1107.6, 1122.5, 1135.8, 1148.8, 1138.5, 1123.3, 1127.5, 1133.5, 1140.8, 1145.9, 1139.4, 1133.4, 1148.9, 1149.4, 1153.4, 1155.4, 1145.0, 1158.6, 1162.2, 1166.5, 1173.5, 1178.2, 1161.5, 1173.3, 1179.5, 1185.1, 1229.0, 1198.1, 1203.4, 1190.6, 1194.3, 1200.4, 1203.3, 1214.9, 1197.7, 1184.3, 1146.9, 1153.7, 1160.1, 1144.8, 1150.9, 1135.1, 1123.4, 1137.0, 1122.1, 1128.7, 1135.3, 1120.2, 1111.1, 1115.9, 1123.8, 1137.4, 1141.0, 1144.6, 1134.0, 1138.8, 1147.8, 1138.1, 1119.2, 1126.4, 1108.2, 1121.5, 1141.1, 1159.1, 1177.6, 1156.3];
+const eloMA     = [1036.5, 1032.7, 1034.7, 1037.3, 1039.44, 1039.52, 1038.51, 1038.29, 1038.8, 1040.49, 1041.33, 1042.65, 1043.05, 1044.49, 1046.35, 1049.19, 1051.88, 1053.23, 1053.58, 1053.54, 1053.61, 1053.62, 1052.85, 1052.07, 1050.08, 1049.33, 1048.75, 1049.23, 1050.15, 1051.31, 1050.58, 1051.07, 1051.54, 1051.97, 1052.05, 1052.07, 1053.01, 1054.03, 1055.51, 1058.03, 1060.12, 1061.85, 1062.52, 1061.11, 1059.22, 1058.37, 1056.49, 1054.79, 1054.19, 1054.52, 1055.52, 1056.32, 1056.99, 1057.93, 1057.5, 1057.59, 1056.75, 1055.82, 1055.93, 1056.25, 1057.63, 1060.43, 1063.28, 1066.09, 1067.83, 1068.74, 1069.91, 1072.09, 1072.41, 1073.42, 1071.83, 1071.57, 1072.5, 1074.03, 1074.19, 1073.91, 1073.52, 1074.51, 1074.0, 1074.53, 1076.25, 1077.91, 1078.54, 1080.63, 1082.07, 1085.55, 1088.91, 1091.1, 1092.62, 1094.17, 1094.83, 1094.96, 1094.55, 1095.53, 1095.45, 1095.43, 1095.41, 1095.17, 1094.57, 1093.96, 1093.49, 1091.43, 1090.45, 1089.47, 1090.12, 1091.85, 1094.25, 1097.17, 1100.63, 1104.09, 1105.95, 1107.73, 1110.69, 1113.78, 1117.84, 1120.97, 1124.69, 1129.09, 1133.15, 1136.58, 1139.77, 1141.27, 1142.79, 1143.68, 1145.55, 1148.89, 1152.27, 1154.14, 1156.31, 1158.55, 1161.59, 1167.97, 1171.25, 1174.85, 1177.33, 1179.92, 1183.61, 1186.59, 1190.11, 1192.19, 1192.91, 1190.82, 1190.3, 1189.42, 1187.11, 1184.83, 1178.57, 1173.59, 1169.16, 1164.59, 1160.22, 1155.88, 1150.34, 1143.42, 1137.97, 1133.93, 1133.3, 1132.45, 1131.42, 1130.7, 1129.89, 1130.74, 1131.72, 1130.53, 1130.82, 1129.45, 1128.53, 1129.93, 1133.13, 1137.24, 1139.41];
+const labels    = ["2025-01-23 vs Chicken Coop", "2025-01-23 vs Chicken Coop", "2025-01-25 vs Alter Iron", "2025-01-25 vs Alter Iron", "2025-01-28 vs Aetheris", "2025-01-28 vs Aetheris", "2025-01-29 vs Bad News Capybaras", "2025-01-29 vs Bad News Capybaras", "2025-02-04 vs Akimbo", "2025-02-07 vs Party Astronauts", "2025-02-08 vs NRG", "2025-02-08 vs MCS", "2025-02-09 vs M80", "2025-02-09 vs Nouns", "2025-02-09 vs Getting Info", "2025-02-10 vs MCS", "2025-02-11 vs NRG", "2025-02-11 vs M80", "2025-02-12 vs Nouns", "2025-02-19 vs Nouns", "2025-02-19 vs Nouns", "2025-02-20 vs Getting Info", "2025-02-20 vs Getting Info", "2025-02-26 vs Vagrants", "2025-02-26 vs Vagrants", "2025-02-27 vs BLUEJAYS", "2025-02-27 vs BLUEJAYS", "2025-03-01 vs SUPER EVIL GANG", "2025-03-02 vs Getting Info", "2025-03-02 vs Wanted Goons", "2025-03-03 vs BLUEJAYS", "2025-03-06 vs MIGHT", "2025-03-07 vs Fisher College", "2025-03-07 vs Vagrants", "2025-03-19 vs LFO 4", "2025-03-19 vs LFO 4", "2025-03-26 vs Akimbo", "2025-03-26 vs Akimbo", "2025-03-27 vs NRG", "2025-03-27 vs NRG", "2025-03-28 vs seoul", "2025-03-29 vs SUPER EVIL GANG", "2025-03-30 vs M80", "2025-03-31 vs M80", "2025-03-31 vs Mythic", "2025-04-02 vs Legacy", "2025-04-02 vs Legacy", "2025-04-03 vs Party Astronauts", "2025-04-03 vs Party Astronauts", "2025-04-08 vs LOBOARMY", "2025-04-09 vs InControl", "2025-04-09 vs InControl", "2025-04-11 vs Daaku", "2025-04-14 vs BLUEJAYS", "2025-04-15 vs Wildcard", "2025-04-16 vs Nouns", "2025-04-17 vs BLUEJAYS", "2025-04-20 vs Nouns", "2025-04-21 vs Wanted Goons", "2025-04-25 vs Daaku", "2025-04-29 vs Fisher College", "2025-05-01 vs Nouns", "2025-05-03 vs NRG", "2025-05-03 vs Nouns", "2025-05-03 vs Nouns", "2025-05-07 vs Legacy", "2025-05-10 vs Tsunami", "2025-05-11 vs Moneyball", "2025-05-13 vs BLUEJAYS", "2025-07-12 vs Tsunami", "2025-07-12 vs BLUEJAYS", "2025-07-13 vs BOSS", "2025-07-13 vs Marca Registrada", "2025-07-14 vs BLUEJAYS", "2025-07-14 vs M80", "2025-07-18 vs NRG", "2025-07-18 vs LAG", "2025-07-19 vs LAG", "2025-07-19 vs Fluxo", "2025-07-24 vs MIGHT", "2025-07-26 vs LAG", "2025-07-29 vs Marca Registrada", "2025-07-30 vs Getting Info", "2025-08-01 vs Wildcard", "2025-08-02 vs M80", "2025-08-08 vs Arrival Seven", "2025-08-09 vs BOSS", "2025-08-13 vs M80", "2025-08-13 vs Take Flyte", "2025-08-15 vs M80", "2025-08-16 vs BLUEJAYS", "2025-08-16 vs Arrival Seven", "2025-08-17 vs Legacy Kingdom", "2025-08-20 vs Chicken Coop", "2025-08-22 vs BLUEJAYS", "2025-08-23 vs BOSS", "2025-08-27 vs ASPYRE", "2025-08-28 vs BLUEJAYS", "2025-08-29 vs Chicken Coop", "2025-09-02 vs BLUEJAYS", "2025-09-06 vs Chicken Coop", "2025-09-07 vs Ninjas in Pyjamas", "2025-09-10 vs ASPYRE", "2025-09-12 vs Outfit 49", "2025-09-14 vs Getting Info", "2025-09-14 vs Fisher College", "2025-09-15 vs Wildcard", "2025-09-18 vs Rave", "2025-09-21 vs Getting Info", "2025-09-23 vs Wildcard", "2025-10-04 vs SAW", "2025-10-07 vs NuTorious", "2025-10-09 vs LAG", "2025-10-14 vs SportsBetExpert", "2025-10-15 vs Wildcard", "2025-10-18 vs Rave", "2025-10-19 vs Wildcard", "2025-10-21 vs Take Flyte", "2025-10-22 vs LAG", "2025-10-25 vs LAG", "2025-10-25 vs Nocturnal", "2025-10-26 vs NRG", "2025-10-26 vs Rave", "2025-10-27 vs Phoenix", "2025-10-29 vs OverKnight", "2025-10-31 vs BOSS", "2025-11-01 vs Ghost", "2025-11-01 vs M80", "2025-11-06 vs Voca", "2025-11-08 vs Reactor 9", "2025-11-08 vs barry pickers", "2025-11-09 vs SAW", "2025-11-09 vs M80", "2025-11-09 vs FlyQuest RED", "2025-11-11 vs Voca", "2025-11-12 vs Mythic", "2025-11-13 vs BOSS", "2025-11-15 vs Zomblers", "2025-11-15 vs Voca", "2025-11-16 vs Rave", "2025-11-16 vs Voca", "2026-01-03 vs NRG", "2026-01-03 vs Reign Above", "2026-01-03 vs Reign Above", "2026-01-04 vs M80", "2026-01-10 vs regain", "2026-01-10 vs BOSS", "2026-01-11 vs NRG", "2026-01-11 vs BOSS", "2026-01-30 vs BESTIA", "2026-01-30 vs Procyon", "2026-01-31 vs Procyon", "2026-02-01 vs BESTIA", "2026-02-06 vs Voca", "2026-02-07 vs Zomblers", "2026-02-09 vs SportsBetExpert", "2026-02-11 vs Rave", "2026-02-18 vs InControl", "2026-02-19 vs FlyQuest RED", "2026-02-21 vs Voca", "2026-02-22 vs Zomblers", "2026-02-23 vs Rave", "2026-02-24 vs Voca", "2026-02-25 vs Fluxo", "2026-02-26 vs Fake do Biru", "2026-02-27 vs 9z", "2026-03-05 vs Galorys", "2026-03-05 vs RED Canids", "2026-03-07 vs Imperial", "2026-03-07 vs BESTIA", "2026-03-08 vs 9z"];
+const winLoss   = [1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0];
+const oppElos   = [955.3, 950.4, 981.2, 973.4, 994.4, 985.6, 936.9, 944.6, 1041.1, 1053.8, 1138.1, 976.8, 1139.8, 1103.2, 1085.2, 971.9, 1153.3, 1147.1, 1099.2, 1093.3, 1099.7, 1115.8, 1122.5, 971.7, 967.4, 1103.4, 1094.9, 944.6, 1114.6, 1012.5, 1112.9, 1002.3, 1048.0, 982.6, 1042.1, 1050.3, 988.6, 982.7, 1138.6, 1128.7, 986.6, 943.0, 1134.7, 1149.8, 951.4, 1163.9, 1168.4, 1026.0, 1035.8, 971.2, 897.3, 893.9, 992.1, 1139.5, 1072.8, 1141.5, 1121.2, 1120.3, 972.5, 1025.5, 1075.2, 1119.5, 1191.3, 1085.0, 1077.9, 1089.4, 989.0, 1102.7, 1104.9, 976.3, 1100.6, 1057.9, 997.9, 1105.9, 1125.5, 1103.9, 1031.7, 1020.2, 1132.0, 951.6, 1006.0, 989.0, 1156.7, 1096.4, 1175.2, 969.0, 1051.1, 1201.3, 982.2, 1201.1, 1107.6, 959.1, 958.4, 956.6, 1112.4, 1037.2, 974.2, 1108.8, 956.5, 1136.9, 943.7, 1163.2, 960.3, 983.3, 1129.5, 999.6, 1195.0, 1130.3, 1156.3, 1191.9, 1182.7, 959.5, 1024.0, 1042.5, 1160.8, 1149.9, 1165.1, 959.5, 979.8, 973.1, 961.6, 1165.2, 1175.0, 946.3, 978.9, 1049.7, 947.8, 1187.5, 1158.2, 982.8, 990.9, 1327.9, 1232.5, 978.9, 1158.8, 975.2, 1051.6, 949.9, 1168.5, 1194.8, 1158.1, 1246.2, 988.2, 983.6, 1195.1, 967.7, 1086.0, 1342.9, 1093.0, 1217.6, 961.5, 960.8, 1209.5, 1171.8, 960.6, 1047.7, 1169.9, 914.2, 937.1, 1183.9, 974.4, 1095.4, 1179.8, 1044.6, 988.3, 1213.7, 1042.5, 1134.6, 1184.4, 1148.0, 1295.3];
+const oppMA     = [955.3, 952.85, 962.3, 965.08, 970.94, 973.38, 968.17, 965.23, 973.66, 981.67, 995.89, 994.3, 1005.49, 1012.47, 1017.32, 1018.43, 1031.95, 1043.01, 1051.4, 1057.99, 1065.6, 1077.53, 1089.39, 1084.76, 1079.0, 1076.69, 1084.56, 1071.55, 1072.31, 1067.46, 1076.86, 1066.79, 1060.19, 1052.41, 1049.0, 1045.71, 1037.23, 1027.91, 1039.03, 1049.79, 1042.0, 1031.87, 1044.55, 1046.89, 1042.82, 1046.22, 1057.29, 1055.83, 1059.37, 1054.65, 1044.45, 1038.13, 1038.76, 1038.82, 1035.09, 1045.42, 1057.3, 1056.34, 1044.52, 1049.46, 1043.55, 1040.29, 1051.31, 1054.59, 1061.7, 1074.51, 1080.85, 1088.22, 1085.91, 1079.48, 1076.75, 1072.53, 1064.37, 1073.27, 1079.93, 1081.85, 1075.99, 1064.59, 1067.72, 1059.3, 1053.74, 1053.74, 1057.34, 1056.77, 1070.03, 1061.26, 1060.81, 1074.37, 1066.12, 1071.16, 1071.41, 1066.57, 1062.45, 1050.75, 1061.47, 1063.55, 1062.57, 1059.37, 1050.05, 1047.49, 1045.81, 1053.28, 1037.21, 1037.29, 1032.51, 1025.31, 1041.04, 1052.5, 1065.81, 1071.11, 1080.81, 1079.83, 1074.18, 1079.91, 1081.51, 1095.25, 1095.38, 1095.33, 1095.09, 1084.67, 1082.13, 1080.15, 1083.13, 1069.13, 1054.93, 1046.06, 1045.28, 1056.18, 1063.89, 1052.03, 1041.43, 1052.28, 1070.48, 1070.42, 1082.8, 1083.71, 1076.13, 1061.13, 1075.94, 1090.33, 1097.56, 1117.45, 1104.17, 1092.53, 1106.68, 1105.13, 1089.01, 1096.37, 1103.97, 1107.89, 1106.98, 1100.93, 1118.23, 1118.45, 1102.84, 1095.48, 1090.39, 1085.46, 1082.36, 1081.61, 1082.06, 1082.69, 1071.81, 1068.59, 1053.3, 1070.11, 1075.56, 1070.57, 1071.41, 1083.9, 1100.41];
+const eventsData= ["ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "CCT Season 2 North America Series 4", "CCT Season 2 North America Series 4", "CCT Season 2 North America Series 4", "ACE North American Masters Spring 2025 Closed Qualifier", "ACE North American Masters Spring 2025 Closed Qualifier", "IEM Dallas 2025 North America Open Qualifier", "IEM Dallas 2025 North America Open Qualifier", "ACE North American Masters Spring 2025 Closed Qualifier", "IEM Dallas 2025 North America Closed Qualifier", "ACE North American Masters Spring 2025 Closed Qualifier", "IEM Dallas 2025 North America Closed Qualifier", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "Fragadelphia Block 2025", "Fragadelphia Block 2025", "Fragadelphia Block 2025", "Fragadelphia Block 2025", "PGL Bucharest 2025 North America Closed Qualifier", "PGL Bucharest 2025 North America Closed Qualifier", "PGL Bucharest 2025 North America Closed Qualifier", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "PGL Astana 2025 North America Closed Qualifier", "PGL Astana 2025 North America Closed Qualifier", "PGL Astana 2025 North America Closed Qualifier", "PGL Astana 2025 North America Closed Qualifier", "PGL Astana 2025 North America Closed Qualifier", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "Dust2.us Eagle Masters Series 1", "ESL Challenger League Season 49 North America", "ESL Challenger League Season 49 North America", "Dust2.us Eagle Masters Series 1", "Dust2.us Eagle Masters Series 1", "BLAST.tv Austin Major 2025 North America Regional Qualifier", "BLAST.tv Austin Major 2025 North America Regional Qualifier", "BLAST.tv Austin Major 2025 North America Regional Qualifier", "Dust2.us Eagle Masters Series 1", "Dust2.us Eagle Masters Series 1", "Dust2.us Eagle Masters Series 1", "Dust2.us Eagle Masters Series 1", "Dust2.us Eagle Masters Series 1", "PrizePicks NA Revival Series 6", "PrizePicks NA Revival Series 6", "PrizePicks NA Revival Series 6", "ESL Challenger League Season 49 North America", "Thunderpick World Championship 2025 North America Series 1", "Thunderpick World Championship 2025 North America Series 1", "Thunderpick World Championship 2025 North America Series 1", "ESL Pro League Season 22 North America Closed Qualifier", "ESL Pro League Season 22 North America Closed Qualifier", "ESL Pro League Season 22 North America Closed Qualifier", "ESL Pro League Season 22 North America Closed Qualifier", "ESL Pro League Season 22 North America Closed Qualifier", "ESL Pro League Season 22 North America Closed Qualifier", "Fragadelphia 19", "Fragadelphia 19", "Fragadelphia 19", "Fragadelphia 19", "Thunderpick World Championship 2025 North America Series 2", "Thunderpick World Championship 2025 North America Series 2", "Ace NA Masters 2025 Season 2 Open Qualifier", "Thunderpick World Championship 2025 North America Series 2", "Ace NA Masters 2025 Season 2 - BLAST Premier Rising Event", "Ace NA Masters 2025 Season 2 - BLAST Premier Rising Event", "CCT Season 3 North America Series 1", "CCT Season 3 North America Series 1", "CCT Season 3 North America Series 1", "ESL Challenger League Season 50 North America Cup 1", "ESL Challenger League Season 50 North America Cup 1", "PrizePicks NA Revival Series 8", "ESL Challenger League Season 50 North America Cup 1", "Dust2.us Eagle Masters Series 3", "Dust2.us Eagle Masters Series 3", "Dust2.us Eagle Masters Series 3", "Dust2.us Eagle Masters Series 3", "ESL Challenger League Season 50 North America Cup 1", "ESL Challenger League Season 50 North America Cup 1", "Dust2.us Eagle Masters Series 3", "Dust2.us Eagle Masters Series 3", "Fragadelphia Fragville 2025", "Fragadelphia Fragville 2025", "ESL Challenger League Season 50 North America Cup 2", "ESL Challenger League Season 50 North America Cup 2", "PrizePicks NA Revival Series 9", "PrizePicks NA Revival Series 9", "PrizePicks NA Revival Series 9", "ESL Challenger League Season 50 North America Cup 2", "ESL Challenger League Season 50 North America Cup 2", "ESL Challenger League Season 50 North America Cup 2", "Fragadelphia Blocktober 2025", "ESL Challenger League Season 50 North America Cup 3", "ESL Challenger League Season 50 North America Cup 3", "Dust2.us Eagle Masters Series 4", "ESL Challenger League Season 50 North America Cup 3", "ESL Challenger League Season 50 North America Cup 3", "ESL Challenger League Season 50 North America Cup 3", "Dust2.us Eagle Masters Series 4", "Dust2.us Eagle Masters Series 4", "PrizePicks NA Revival Series 10", "ESL Challenger League Season 50 North America Cup 4", "PrizePicks NA Revival Series 10", "PrizePicks NA Revival Series 10", "ESL Challenger League Season 50 North America Cup 4", "Dust2.us Eagle Masters Series 4", "Dust2.us Eagle Masters Series 4", "DreamHack Knockout Atlanta 2025", "DreamHack Knockout Atlanta 2025", "Dust2.us Eagle Masters Series 4", "Fragadelphia Ultra Mega Jersey 2025", "Fragadelphia Ultra Mega Jersey 2025", "Fragadelphia Ultra Mega Jersey 2025", "Fragadelphia Ultra Mega Jersey 2025", "Fragadelphia Ultra Mega Jersey 2025", "ESL Challenger League Season 50 North America Cup 4", "ESL Challenger League Season 50 North America Cup 4", "ESL Challenger League Season 50 North America Cup 4", "PrizePicks NA Revival Series 11", "ESL Challenger League Season 50 North America Cup 4", "ESL Challenger League Season 50 North America Cup 4", "PrizePicks NA Revival Series 11", "Fragadelphia Miami 2026", "Fragadelphia Miami 2026", "Fragadelphia Miami 2026", "Fragadelphia Miami 2026", "fl0m Mythical LAN Las Vegas 2026", "fl0m Mythical LAN Las Vegas 2026", "fl0m Mythical LAN Las Vegas 2026", "fl0m Mythical LAN Las Vegas 2026", "FiRe CONTER Season 1", "FiRe CONTER Season 1", "FiRe CONTER Season 1", "FiRe CONTER Season 1", "Ace NA Masters 2026 Season 1 - BLAST Premier Rising Event", "CCT Season 3 North America Series 3", "CCT Season 3 North America Series 3", "CCT Season 3 North America Series 3", "ESL Challenger League Season 51 North America Cup 1", "ESL Challenger League Season 51 North America Cup 1", "ESL Challenger League Season 51 North America Cup 1", "ESL Challenger League Season 51 North America Cup 1", "ESL Challenger League Season 51 North America Cup 1", "ESL Challenger League Season 51 North America Cup 1", "BetBoom RUSH B Summit Season 2", "BetBoom RUSH B Summit Season 2", "BetBoom RUSH B Summit Season 2", "BetBoom Circuit X Pantanal Cuiab\u00e1 2026", "BetBoom Circuit X Pantanal Cuiab\u00e1 2026", "BetBoom Circuit X Pantanal Cuiab\u00e1 2026", "BetBoom Circuit X Pantanal Cuiab\u00e1 2026", "BetBoom Circuit X Pantanal Cuiab\u00e1 2026"];
+const tierLabels= ["none"];
+const tierWR    = [60.8];
+const tierMatches=[171];
+
+Chart.defaults.color = '#525766';
+Chart.defaults.borderColor = '#1a1e2a';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+
+// Streak bar
+const streakBar = document.getElementById('streakBar');
+winLoss.slice(-30).forEach(v => {
+  const d = document.createElement('div');
+  d.className = 'streak-dot ' + (v ? 'w' : 'l');
+  streakBar.appendChild(d);
+});
+
+const ptColors = winLoss.map(v => v ? 'rgba(0,230,118,0.65)' : 'rgba(255,82,82,0.5)');
+
+new Chart(document.getElementById('eloChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Team ELO',
+        data: eloData,
+        borderColor: 'rgba(255,61,113,0.2)',
+        borderWidth: 1,
+        pointBackgroundColor: ptColors,
+        pointRadius: eloData.length > 200 ? 0 : 3,
+        pointHoverRadius: 5,
+        fill: { target: 'origin', above: 'rgba(255,61,113,0.04)' },
+        tension: 0.2,
+      },
+      {
+        label: 'ELO (MA15)',
+        data: eloMA,
+        borderColor: '#ff3d71',
+        borderWidth: 2.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.3,
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 10 } } },
+      tooltip: {
+        backgroundColor: '#0f1117', borderColor: '#1a1e2a', borderWidth: 1,
+        callbacks: {
+          title: ctx => labels[ctx[0].dataIndex].substring(0, 40),
+          afterBody: ctx => {
+            const i = ctx[0].dataIndex;
+            return [`Event: ${eventsData[i] || 'Unknown'}`, `Result: ${winLoss[i] ? '✓ WIN' : '✗ LOSS'}`];
+          }
+        }
+      }
+    },
+    scales: {
+      x: { display: false },
+      y: { grid: { color: 'rgba(26,30,42,0.9)' }, ticks: { font: { size: 10 } } }
+    }
+  }
+});
+
+new Chart(document.getElementById('oppChart'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Opp ELO',
+        data: oppElos,
+        backgroundColor: oppElos.map(e => e >= 1300 ? 'rgba(255,215,64,0.5)' : e >= 1200 ? 'rgba(0,229,255,0.3)' : 'rgba(82,87,102,0.3)'),
+        borderWidth: 0,
+      },
+      {
+        label: 'MA15',
+        data: oppMA,
+        type: 'line',
+        borderColor: '#ffd740',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.4,
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0f1117', borderColor: '#1a1e2a', borderWidth: 1,
+        callbacks: { title: ctx => labels[ctx[0].dataIndex].substring(0,35) }
+      }
+    },
+    scales: {
+      x: { display: false },
+      y: { grid: { color: 'rgba(26,30,42,0.9)' }, ticks: { font: { size: 10 } } }
+    }
+  }
+});
+
+new Chart(document.getElementById('tierChart'), {
+  type: 'bar',
+  data: {
+    labels: tierLabels,
+    datasets: [{
+      data: tierWR,
+      backgroundColor: ['rgba(255,215,64,0.7)','rgba(0,229,255,0.6)','rgba(0,200,220,0.5)','rgba(255,61,113,0.5)','rgba(140,140,160,0.4)','rgba(70,70,90,0.3)'].slice(0, tierLabels.length),
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0f1117', borderColor: '#1a1e2a', borderWidth: 1,
+        callbacks: {
+          afterBody: ctx => [`Matches: ${tierMatches[ctx[0].dataIndex]}`]
+        }
+      }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      y: { grid: { color: 'rgba(26,30,42,0.9)' }, ticks: { font: { size: 10 }, callback: v => v + '%' }, max: 100 }
+    }
+  }
+});
+</script>
+</body>
+</html>

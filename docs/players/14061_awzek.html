@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>awzek — ELO Report</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --surface2: #181c24;
+    --border: #1e2330;
+    --accent: #00e5ff;
+    --accent2: #ff3d71;
+    --gold: #ffd740;
+    --green: #00e676;
+    --red: #ff5252;
+    --text: #e8eaf0;
+    --muted: #5a6070;
+    --win-bg: rgba(0,230,118,0.06);
+    --loss-bg: rgba(255,82,82,0.06);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  .noise {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+  .container { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 32px 24px; }
+
+  /* HEADER */
+  .header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px; margin-bottom: 32px;
+  }
+  .player-title { line-height: 1; }
+  .player-title h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(48px, 8vw, 96px);
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-shadow: 0 0 60px rgba(0,229,255,0.3);
+  }
+  .player-title .sub {
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--muted); font-size: 12px; letter-spacing: 3px; text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .header-meta {
+    text-align: right;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted);
+  }
+  .header-meta .elo-big {
+    font-family: 'Bebas Neue', sans-serif; font-size: 42px;
+    color: var(--gold); display: block; line-height: 1;
+  }
+
+  /* STAT CARDS */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 20px;
+    position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent); opacity: 0.4;
+  }
+  .stat-card.highlight::before { background: var(--gold); opacity: 0.8; }
+  .stat-card .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 2px; margin-bottom: 8px;
+  }
+  .stat-card .value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px; line-height: 1; color: var(--text);
+  }
+  .stat-card .sub-value {
+    font-size: 11px; color: var(--muted); margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.gold  { color: var(--gold); }
+  .stat-card .value.cyan  { color: var(--accent); }
+
+  /* PANELS */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .panel-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 3px;
+    color: var(--muted); margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel-title::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* TWO COL */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* TABLE */
+  .match-table { width: 100%; border-collapse: collapse; }
+  .match-table th {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--muted); text-align: left;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  .match-table td {
+    padding: 10px 12px; border-bottom: 1px solid rgba(30,35,48,0.5);
+    font-size: 13px;
+  }
+  .match-table tr.win  { background: var(--win-bg); }
+  .match-table tr.loss { background: var(--loss-bg); }
+  .match-table tr:hover { background: var(--surface2); }
+  .result-icon { font-size: 10px; }
+  .result-icon.win  { color: var(--green); }
+  .result-icon.loss { color: var(--red); }
+  .team-cell { font-weight: 600; }
+  .rating-high { color: var(--green); font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+  .rating-mid  { color: var(--text);  font-family: 'IBM Plex Mono', monospace; }
+  .rating-low  { color: var(--red);   font-family: 'IBM Plex Mono', monospace; }
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 2px;
+    font-size: 10px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 1px;
+  }
+  .badge.lan    { background: rgba(255,215,64,0.15); color: var(--gold); border: 1px solid rgba(255,215,64,0.3); }
+  .badge.online { background: rgba(90,96,112,0.2);   color: var(--muted); border: 1px solid var(--border); }
+  .tier-badge {
+    display: inline-block; padding: 2px 6px; border-radius: 2px;
+    font-size: 10px; font-family: 'IBM Plex Mono', monospace;
+  }
+  .tier-badge.tier-major       { background: rgba(255,215,64,0.15); color: var(--gold); }
+  .tier-badge.tier-super-elite { background: rgba(0,229,255,0.12);  color: var(--accent); }
+  .tier-badge.tier-elite       { background: rgba(0,229,255,0.08);  color: #80deea; }
+  .tier-badge.tier-big         { background: rgba(255,61,113,0.1);  color: #ff80ab; }
+  .tier-badge.tier-medium      { background: rgba(255,255,255,0.05); color: var(--muted); }
+  .tier-badge.tier-none        { background: rgba(255,255,255,0.03); color: #3a3f50; }
+
+  /* STREAK INDICATOR */
+  .streak-bar { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 8px; }
+  .streak-dot {
+    width: 10px; height: 10px; border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .streak-dot.w { background: var(--green); }
+  .streak-dot.l { background: var(--red); opacity: 0.6; }
+
+  /* FOOTER */
+  .footer {
+    text-align: center; padding: 32px 0 16px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--muted); letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="player-title">
+      <h1>awzek</h1>
+      <div class="sub">Player ID: 14061 &nbsp;·&nbsp; ELO Report &nbsp;·&nbsp; 58 matches tracked</div>
+    </div>
+    <div class="header-meta">
+      <span class="elo-big">963</span>
+      CURRENT ELO
+    </div>
+  </div>
+
+  <!-- STAT CARDS -->
+  <div class="stat-grid">
+    <div class="stat-card highlight">
+      <div class="label">Win Rate</div>
+      <div class="value gold">43.1%</div>
+      <div class="sub-value">25W – 33L</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Rating</div>
+      <div class="value cyan">1.017</div>
+      <div class="sub-value">HLTV 3.0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">ELO Peak</div>
+      <div class="value cyan">1041</div>
+      <div class="sub-value">all-time high</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">ELO vs Start</div>
+      <div class="value ">
+        -37
+      </div>
+      <div class="sub-value">from 1000 base</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">LAN Matches</div>
+      <div class="value">2</div>
+      <div class="sub-value">3.4% of total</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">LAN Win Rate</div>
+      <div class="value ">0.0%</div>
+      <div class="sub-value">vs 44.6% online</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Current Streak</div>
+      <div class="value value">3L</div>
+      <div class="sub-value">losing streak</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Major / Elite WR</div>
+      <div class="value">0%</div>
+      <div class="sub-value">0 top-tier matches</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Upset Rate</div>
+      <div class="value cyan">48.0%</div>
+      <div class="sub-value">won as underdog</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Choke Rate</div>
+      <div class="value">66.7%</div>
+      <div class="sub-value">lost as favourite</div>
+    </div>
+  </div>
+
+  <!-- Recent form dots -->
+  <div style="margin-bottom:24px; display:flex; align-items:center; gap:12px;">
+    <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:2px;">Last 30</span>
+    <div class="streak-bar" id="streakBar"></div>
+  </div>
+
+  <!-- ELO HISTORY CHART -->
+  <div class="panel">
+    <div class="panel-title">ELO History</div>
+    <div class="chart-wrap" style="height:340px">
+      <canvas id="eloChart"></canvas>
+    </div>
+  </div>
+
+  <!-- RATING + TIER CHARTS -->
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-title">Rating per Match</div>
+      <div class="chart-wrap" style="height:220px">
+        <canvas id="ratingChart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Performance by Tier</div>
+      <div class="chart-wrap" style="height:220px">
+        <canvas id="tierChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECENT MATCHES TABLE -->
+  <div class="panel">
+    <div class="panel-title">Last 20 Matches</div>
+    <div style="overflow-x:auto">
+      <table class="match-table">
+        <thead>
+          <tr>
+            <th>Result</th><th>Date</th><th>Opponent</th><th>Score</th>
+            <th>Rating</th><th>ELO</th><th>Event</th><th>Tier</th><th>Format</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-11-03</td>
+          <td class="team-cell">Arrow</td>
+          <td>1-2</td>
+          <td class="rating-low">0.80</td>
+          <td>963</td>
+          <td>DACH Masters Season 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-11-02</td>
+          <td class="team-cell">BIG</td>
+          <td>1-2</td>
+          <td class="rating-low">0.76</td>
+          <td>973</td>
+          <td>DACH Masters Season 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-24</td>
+          <td class="team-cell">ECLOT</td>
+          <td>0-2</td>
+          <td class="rating-low">0.83</td>
+          <td>983</td>
+          <td>YaLLa Compass Fall 2024 Contenders</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-10-23</td>
+          <td class="team-cell">Preasy</td>
+          <td>2-0</td>
+          <td class="rating-high">1.16</td>
+          <td>992</td>
+          <td>YaLLa Compass Fall 2024 Contenders</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-15</td>
+          <td class="team-cell">HOTU</td>
+          <td>0-2</td>
+          <td class="rating-low">0.72</td>
+          <td>988</td>
+          <td>YaLLa Compass Fall 2024 Contenders</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-08</td>
+          <td class="team-cell">Metizport</td>
+          <td>0-2</td>
+          <td class="rating-mid">1.01</td>
+          <td>988</td>
+          <td>CCT Season 2 Europe Series 14</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-07</td>
+          <td class="team-cell">GUN5</td>
+          <td>1-2</td>
+          <td class="rating-mid">0.93</td>
+          <td>996</td>
+          <td>CCT Season 2 Europe Series 14</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-10-08</td>
+          <td class="team-cell">Monte Gen</td>
+          <td>2-0</td>
+          <td class="rating-mid">0.96</td>
+          <td>997</td>
+          <td>YaLLa Compass Fall 2024 Contenders</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-05</td>
+          <td class="team-cell">Passion UA</td>
+          <td>1-2</td>
+          <td class="rating-low">0.71</td>
+          <td>1004</td>
+          <td>CCT Season 2 Europe Series 14</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-10-03</td>
+          <td class="team-cell">TSM</td>
+          <td>2-1</td>
+          <td class="rating-mid">1.04</td>
+          <td>1022</td>
+          <td>CCT Season 2 Europe Series 14</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-09-30</td>
+          <td class="team-cell">Illuminar</td>
+          <td>0-2</td>
+          <td class="rating-mid">0.99</td>
+          <td>1004</td>
+          <td>European Pro League Season 19</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-09-30</td>
+          <td class="team-cell">500</td>
+          <td>1-2</td>
+          <td class="rating-mid">0.93</td>
+          <td>997</td>
+          <td>Shuffle Masters Season 2</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-01</td>
+          <td class="team-cell">9INE</td>
+          <td>0-2</td>
+          <td class="rating-mid">1.00</td>
+          <td>990</td>
+          <td>YaLLa Compass Fall 2024 Contenders</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-09-29</td>
+          <td class="team-cell">Betclic</td>
+          <td>1-2</td>
+          <td class="rating-mid">0.92</td>
+          <td>1018</td>
+          <td>European Pro League Season 19</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-10-03</td>
+          <td class="team-cell">B8</td>
+          <td>1-2</td>
+          <td class="rating-mid">1.04</td>
+          <td>1015</td>
+          <td>CCT Season 2 Europe Series 13</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-10-01</td>
+          <td class="team-cell">CPH Wolves</td>
+          <td>2-1</td>
+          <td class="rating-low">0.86</td>
+          <td>997</td>
+          <td>CCT Season 2 Europe Series 13</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="loss">
+          <td><span class="result-icon loss">▼</span> LOSS</td>
+          <td>2024-09-30</td>
+          <td class="team-cell">DRILLAS</td>
+          <td>1-2</td>
+          <td class="rating-mid">0.92</td>
+          <td>1010</td>
+          <td>CCT Season 2 Europe Series 13</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-09-27</td>
+          <td class="team-cell">Into the Breach</td>
+          <td>2-0</td>
+          <td class="rating-low">0.87</td>
+          <td>1027</td>
+          <td>CCT Season 2 Europe Series 13</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-10-01</td>
+          <td class="team-cell">HOTU</td>
+          <td>2-0</td>
+          <td class="rating-high">1.31</td>
+          <td>1010</td>
+          <td>CCT Season 2 Europe Series 14</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr>
+        <tr class="win">
+          <td><span class="result-icon win">▲</span> WIN</td>
+          <td>2024-09-25</td>
+          <td class="team-cell">Rhyno</td>
+          <td>2-0</td>
+          <td class="rating-high">1.73</td>
+          <td>1020</td>
+          <td>CCT Season 2 Europe Series 13</td>
+          <td><span class="tier-badge tier-none">none</span></td>
+          <td><span class="badge online">Online</span></td>
+        </tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">CS2 ELO SYSTEM &nbsp;·&nbsp; Generated 2026-03-13 22:05</div>
+</div>
+
+<script>
+const eloData      = [977.0, 999.2, 990.0, 991.8, 966.9, 954.1, 958.9, 943.6, 964.6, 942.3, 953.3, 938.8, 946.2, 959.8, 975.2, 1006.8, 1035.7, 1025.2, 957.7, 946.1, 974.1, 966.0, 952.4, 989.7, 1036.0, 1027.3, 1026.0, 1026.5, 1041.0, 1041.1, 1033.7, 1022.9, 1011.9, 1014.9, 1004.7, 1025.6, 1014.2, 1015.0, 1020.2, 1010.4, 1026.8, 1009.8, 997.2, 1014.8, 1018.4, 989.5, 997.4, 1003.5, 1021.7, 1004.0, 997.2, 995.7, 988.0, 987.6, 992.3, 982.9, 973.4, 963.1];
+const eloMA        = [977.0, 988.1, 988.73, 989.5, 984.98, 979.83, 976.84, 972.69, 971.79, 968.84, 967.43, 965.04, 963.59, 963.32, 964.11, 966.78, 970.84, 973.86, 973.01, 971.66, 971.51, 969.85, 967.98, 967.87, 971.33, 974.99, 978.34, 982.49, 986.3, 991.25, 995.26, 999.47, 1002.75, 1005.51, 1006.99, 1007.92, 1006.85, 1006.34, 1009.46, 1012.68, 1015.31, 1017.5, 1019.75, 1021.0, 1020.12, 1018.23, 1016.8, 1015.65, 1014.69, 1012.83, 1011.0, 1009.65, 1008.45, 1007.09, 1006.46, 1004.33, 1002.29, 999.7];
+const labels       = ["2024-08-07 vs Complexity", "2024-08-01 vs Sampi", "2024-08-01 vs Metizport", "2024-08-06 vs Enterprise", "2024-08-08 vs Falcons", "2024-08-13 vs Monte Gen", "2024-08-12 vs Nexus", "2024-08-14 vs TSM", "2024-08-22 vs Sampi", "2024-08-15 vs Anonymo", "2024-08-15 vs DMS", "2024-08-18 vs Young Ninjas", "2024-08-19 vs Insilio", "2024-08-21 vs Aurora Young Blud", "2024-08-26 vs BIG", "2024-08-27 vs MOUZ NXT", "2024-08-28 vs Monte Gen", "2024-08-28 vs B8", "2024-08-19 vs WOPA", "2024-08-20 vs The Suspect", "2024-08-23 vs Grannys Knockers", "2024-08-24 vs FAVBET", "2024-08-19 vs Illuminar", "2024-08-27 vs Nemiga", "2024-08-31 vs OG", "2024-09-05 vs Cloud9", "2024-08-29 vs Into the Breach", "2024-09-01 vs Alliance", "2024-09-04 vs Meteor", "2024-09-05 vs FAVBET", "2024-09-10 vs TSM", "2024-09-15 vs Monte Gen", "2024-09-17 vs CPH Wolves", "2024-09-19 vs The Suspect", "2024-09-23 vs Spirit Academy", "2024-09-20 vs UNiTY", "2024-09-21 vs FAVBET", "2024-09-24 vs Into the Breach", "2024-09-25 vs Rhyno", "2024-10-01 vs HOTU", "2024-09-27 vs Into the Breach", "2024-09-30 vs DRILLAS", "2024-10-01 vs CPH Wolves", "2024-10-03 vs B8", "2024-09-29 vs Betclic", "2024-10-01 vs 9INE", "2024-09-30 vs 500", "2024-09-30 vs Illuminar", "2024-10-03 vs TSM", "2024-10-05 vs Passion UA", "2024-10-08 vs Monte Gen", "2024-10-07 vs GUN5", "2024-10-08 vs Metizport", "2024-10-15 vs HOTU", "2024-10-23 vs Preasy", "2024-10-24 vs ECLOT", "2024-11-02 vs BIG", "2024-11-03 vs Arrow"];
+const winLoss      = [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+const ratingsData  = [0.78, 1.16, 1.15, 1.0, 1.07, 1.2, 0.85, 0.82, 0.82, 0.79, 1.07, 1.0, 1.04, 1.89, 1.26, 1.37, 1.03, 1.2, 1.15, 0.91, 1.29, 0.9, 1.08, 0.98, 0.96, 0.86, 0.97, 0.99, 1.3, 1.36, 0.95, 0.81, 0.81, 0.78, 0.84, 1.23, 0.74, 1.07, 1.73, 1.31, 0.87, 0.92, 0.86, 1.04, 0.92, 1.0, 0.93, 0.99, 1.04, 0.71, 0.96, 0.93, 1.01, 0.72, 1.16, 0.83, 0.76, 0.8];
+const ratingMA     = [0.78, 0.97, 1.03, 1.02, 1.03, 1.06, 1.03, 1.0, 0.98, 0.96, 0.97, 0.98, 0.98, 1.05, 1.06, 1.08, 1.08, 1.08, 1.09, 1.08, 1.1, 1.09, 1.09, 1.09, 1.08, 1.06, 1.07, 1.08, 1.1, 1.13, 1.12, 1.11, 1.1, 1.05, 1.03, 1.02, 1.01, 1.0, 1.03, 1.05, 1.03, 1.03, 1.02, 1.02, 1.02, 1.02, 1.02, 1.02, 1.01, 0.98, 0.98, 0.98, 0.99, 0.99, 1.01, 0.99, 0.99, 0.97];
+const eventsData   = ["IEM Cologne 2024 Play-in", "Elisa Invitational Fall 2024 Contenders", "YaLLa Compass Summer 2024 Contenders", "YaLLa Compass Summer 2024 Contenders", "IEM Cologne 2024 Play-in", "CCT Season 2 Europe Series 9", "YaLLa Compass Summer 2024 Contenders", "Elisa Invitational Fall 2024", "Elisa Invitational Fall 2024", "European Pro League Season 18", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 9", "CCT Season 2 Europe Series 10 Closed Qualifier", "CCT Season 2 Europe Series 10 Closed Qualifier", "CCT Season 2 Europe Series 10 Closed Qualifier", "CCT Season 2 Europe Series 10 Closed Qualifier", "European Pro League Season 18", "Thunderpick World Championship 2024 EU Closed Qualifier 2", "Thunderpick World Championship 2024 EU Closed Qualifier 2", "Thunderpick World Championship 2024 EU Closed Qualifier 2", "Elisa Invitational Fall 2024", "CCT Season 2 Europe Series 11 Closed Qualifier", "Elisa Invitational Fall 2024", "Elisa Invitational Fall 2024", "Elisa Invitational Fall 2024", "CCT Season 2 Europe Series 12", "CCT Season 2 Europe Series 12", "CCT Season 2 Europe Series 12", "CCT Season 2 Europe Series 13", "European Pro League Season 19", "CCT Season 2 Europe Series 12", "European Pro League Season 19", "CCT Season 2 Europe Series 13", "CCT Season 2 Europe Series 14", "CCT Season 2 Europe Series 13", "CCT Season 2 Europe Series 13", "CCT Season 2 Europe Series 13", "CCT Season 2 Europe Series 13", "European Pro League Season 19", "YaLLa Compass Fall 2024 Contenders", "Shuffle Masters Season 2", "European Pro League Season 19", "CCT Season 2 Europe Series 14", "CCT Season 2 Europe Series 14", "YaLLa Compass Fall 2024 Contenders", "CCT Season 2 Europe Series 14", "CCT Season 2 Europe Series 14", "YaLLa Compass Fall 2024 Contenders", "YaLLa Compass Fall 2024 Contenders", "YaLLa Compass Fall 2024 Contenders", "DACH Masters Season 2", "DACH Masters Season 2"];
+const tierLabels   = ["none"];
+const tierWR       = [43.1];
+const tierMatches  = [58];
+const tierRating   = [1.017];
+
+// Point colors
+const ptColors = winLoss.map(v => v ? 'rgba(0,230,118,0.7)' : 'rgba(255,82,82,0.5)');
+
+// Streak bar
+const streakBar = document.getElementById('streakBar');
+const last30 = winLoss.slice(-30);
+last30.forEach(v => {
+  const d = document.createElement('div');
+  d.className = 'streak-dot ' + (v ? 'w' : 'l');
+  streakBar.appendChild(d);
+});
+
+// Chart defaults
+Chart.defaults.color = '#5a6070';
+Chart.defaults.borderColor = '#1e2330';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+
+// ---- ELO CHART ----
+new Chart(document.getElementById('eloChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'ELO',
+        data: eloData,
+        borderColor: 'rgba(0,229,255,0.25)',
+        borderWidth: 1,
+        pointBackgroundColor: ptColors,
+        pointRadius: eloData.length > 200 ? 0 : 3,
+        pointHoverRadius: 5,
+        fill: {
+          target: 'origin',
+          above: 'rgba(0,229,255,0.03)',
+        },
+        tension: 0.2,
+      },
+      {
+        label: 'ELO (MA20)',
+        data: eloMA,
+        borderColor: '#00e5ff',
+        borderWidth: 2.5,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        fill: false,
+        tension: 0.3,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 10 } } },
+      tooltip: {
+        backgroundColor: '#111318',
+        borderColor: '#1e2330',
+        borderWidth: 1,
+        callbacks: {
+          title: ctx => labels[ctx[0].dataIndex].substring(0, 40),
+          afterBody: ctx => {
+            const i = ctx[0].dataIndex;
+            return [`Event: ${eventsData[i] || 'Unknown'}`, `Result: ${winLoss[i] ? '✓ WIN' : '✗ LOSS'}`];
+          }
+        }
+      }
+    },
+    scales: {
+      x: { display: false },
+      y: {
+        grid: { color: 'rgba(30,35,48,0.8)' },
+        ticks: { font: { size: 10 } }
+      }
+    }
+  }
+});
+
+// ---- RATING CHART ----
+new Chart(document.getElementById('ratingChart'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Rating',
+        data: ratingsData,
+        backgroundColor: ratingsData.map(r => r >= 1.1 ? 'rgba(0,230,118,0.4)' : r < 0.9 ? 'rgba(255,82,82,0.4)' : 'rgba(0,229,255,0.2)'),
+        borderWidth: 0,
+      },
+      {
+        label: 'MA20',
+        data: ratingMA,
+        type: 'line',
+        borderColor: '#ffd740',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.4,
+        yAxisID: 'y',
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#111318',
+        borderColor: '#1e2330',
+        borderWidth: 1,
+        callbacks: { title: ctx => labels[ctx[0].dataIndex].substring(0,35) }
+      }
+    },
+    scales: {
+      x: { display: false },
+      y: {
+        grid: { color: 'rgba(30,35,48,0.8)' },
+        ticks: { font: { size: 10 } }
+      }
+    }
+  }
+});
+
+// ---- TIER CHART ----
+const tierColors = [
+  'rgba(255,215,64,0.7)', 'rgba(0,229,255,0.7)', 'rgba(0,200,220,0.6)',
+  'rgba(255,61,113,0.5)', 'rgba(160,160,180,0.4)', 'rgba(80,80,100,0.3)'
+];
+new Chart(document.getElementById('tierChart'), {
+  type: 'bar',
+  data: {
+    labels: tierLabels,
+    datasets: [
+      {
+        label: 'Win Rate %',
+        data: tierWR,
+        backgroundColor: tierColors.slice(0, tierLabels.length),
+        borderWidth: 0,
+        yAxisID: 'y',
+      },
+      {
+        label: 'Matches',
+        data: tierMatches,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        type: 'bar',
+        yAxisID: 'y2',
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#111318', borderColor: '#1e2330', borderWidth: 1,
+        callbacks: {
+          afterBody: ctx => {
+            const i = ctx[0].dataIndex;
+            return [`Matches: ${tierMatches[i]}`, `Avg Rating: ${tierRating[i]}`];
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+      y: {
+        grid: { color: 'rgba(30,35,48,0.8)' },
+        ticks: { font: { size: 10 }, callback: v => v + '%' },
+        max: 100
+      },
+      y2: {
+        position: 'right', display: false
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>
